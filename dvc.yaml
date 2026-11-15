@@ -1,0 +1,8 @@
+stages:
+  train:
+    cmd: python -m training.train --data data/dataset.csv --model-out models/model.joblib
+    deps:
+      - data/dataset.csv
+      - training/train.py
+    outs:
+      - models/model.joblib
