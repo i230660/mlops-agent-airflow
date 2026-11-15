@@ -41,6 +41,7 @@ class Evidence(BaseModel):
 class ChatResponse(BaseModel):
     request_id: str
     answer: str
+    planner: str = "rules"
     tools_called: list[str]
     evidence: list[Evidence]
     known_facts: list[str] = []

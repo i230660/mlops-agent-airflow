@@ -42,7 +42,7 @@ class Settings:
     k8s_app_label: str = field(default_factory=lambda: _env("K8S_APP_LABEL", "app=ml-inference"))
 
     # LLM
-    llm_model: str = field(default_factory=lambda: _env("AGENT_LLM_MODEL", "gemini-2.5-flash"))
+    llm_model: str = field(default_factory=lambda: _env("AGENT_LLM_MODEL", "gemini-3.8-flash"))
     gemini_api_key: str = field(default_factory=lambda: _env("GEMINI_API_KEY") or _env("GOOGLE_API_KEY"))
     max_agent_steps: int = field(default_factory=lambda: int(_env("MAX_AGENT_STEPS", "8")))
 

@@ -7,6 +7,7 @@ through validation, permissions, timeouts and logging.
 from __future__ import annotations
 
 import json
+import time
 from typing import Any, Callable
 
 from .config import Settings
@@ -58,6 +59,19 @@ class GeminiLLM:
             client = genai.Client(api_key=settings.gemini_api_key)
         self.client = client
 
+    def _generate(self, contents, config):
+        """Call Gemini, retrying briefly on transient errors (rate limit / overload)."""
+        delay = 2.0
+        for attempt in range(4):
+            try:
+                return self.client.models.generate_content(model=self.s.llm_model, contents=contents, config=config)
+            except Exception as exc:  # noqa: BLE001
+                if getattr(exc, "code", None) in (429, 500, 502, 503, 504) and attempt < 3:
+                    time.sleep(delay)
+                    delay *= 2
+                    continue
+                raise
+
     def run(self, system: str, message: str, tools: list[dict], call_tool: Callable) -> str:
         from google.genai import types
 
@@ -69,7 +83,7 @@ class GeminiLLM:
         )
         contents = [types.Content(role="user", parts=[types.Part.from_text(text=message)])]
         for _ in range(self.s.max_agent_steps):
-            resp = self.client.models.generate_content(model=self.s.llm_model, contents=contents, config=config)
+            resp = self._generate(contents, config)
             calls = resp.function_calls or []
             if not calls:
                 return resp.text or ""

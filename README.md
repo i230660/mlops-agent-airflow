@@ -80,7 +80,7 @@ curl -s localhost:8001/tools | python -m json.tool
 curl -s localhost:8001/chat -H 'content-type: application/json' -d '{"message":"Find the best recent model, identify the dataset version used to train it, check the deployment status, and explain whether retraining is necessary."}' | python -m json.tool
 # CLI:   python -m agent.main "Why is my prediction API unavailable?"
 ```
-* With `GEMINI_API_KEY` set (free key from Google AI Studio) the agent uses Gemini function calling (`AGENT_LLM_MODEL`, default `gemini-2.5-flash`). Without it a deterministic **rule planner** is used (same tools, same evidence rules) — handy for offline demos and tests.
+* With `GEMINI_API_KEY` set (free key from Google AI Studio) the agent uses Gemini function calling (`AGENT_LLM_MODEL`, default `gemini-3.8-flash`). Without it a deterministic **rule planner** is used (same tools, same evidence rules) — handy for offline demos and tests.
 * State-changing requests (trigger DAG, restart/scale) are **refused unless** the request body has `"confirm_actions": true`.
 
 ## 7. Tests and lint

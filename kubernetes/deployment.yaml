@@ -20,10 +20,9 @@ spec:
       labels:
         app: ml-inference
       annotations:
-        # Provenance read by the agent's k8s_app_version tool. Update on each release.
         model-version: "v1"
-        dataset-version: "md5-REPLACE_AFTER_DVC_ADD"
-        mlflow-run-id: "REPLACE_WITH_RUN_ID"
+        dataset-version: "v1.0"
+        mlflow-run-id: "resilient-eel-528"
     spec:
       containers:
         - name: api

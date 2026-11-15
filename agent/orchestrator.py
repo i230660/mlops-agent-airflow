@@ -1,12 +1,4 @@
-"""Multi-tool orchestrator.
 
-Two planning back-ends share one execution/answer path:
-  * LLMPlanner   - Gemini function-calling loop (used when GEMINI_API_KEY is set)
-  * RulePlanner  - deterministic keyword planner (offline / tests / demo fallback)
-
-Whatever plans the calls, the final answer is composed ONLY from ToolResult evidence.
-If a tool failed, the answer says so instead of inventing values.
-"""
 from __future__ import annotations
 
 import re
@@ -73,6 +65,8 @@ class RulePlanner:
                 calls.append(("K8S_LOGS_FROM_PODS", {}))
             else:
                 calls += [("k8s_list_deployments", {}), ("k8s_list_pods", {})]
+                if any(w in m for w in ("version", "model", "dataset", "image")):
+                    calls.append(("k8s_app_version", {}))
         return calls
 
 
@@ -94,16 +88,21 @@ class Orchestrator:
             return res
 
         llm_text: Optional[str] = None
-        if self.llm is not None:
+        llm_note: Optional[str] = None
+        if self.llm is None:
+            llm_note = "No GEMINI_API_KEY loaded in the agent process; used the keyword rule planner instead of the LLM."
+        else:
             try:
                 llm_text = self.llm.run(SYSTEM_PROMPT, message, self.registry.schemas(), call_tool)
             except Exception as exc:  # noqa: BLE001
-                logger.warning("llm_failed", extra={"fields": {"request_id": rid, "error": type(exc).__name__}})
+                code = getattr(exc, "code", None)
+                logger.warning("llm_failed", extra={"fields": {"request_id": rid, "error": type(exc).__name__, "code": code}})
+                llm_note = f"The LLM call failed ({type(exc).__name__}, code={code}); fell back to the keyword rule planner."
                 results.clear()
-        if self.llm is None or llm_text is None:
+        if llm_text is None:
             self._run_rule_plan(message, call_tool)
 
-        return self._compose(rid, message, results, llm_text)
+        return self._compose(rid, message, results, llm_text, llm_note)
 
     # ----------------------------------------------------------------- planning
     def _run_rule_plan(self, message: str, call_tool) -> None:
@@ -129,14 +128,17 @@ class Orchestrator:
                 pods = ToolResult(tool="k8s_list_pods", status="ok", data=res.data.get("unhealthy_pods", []))
 
     # ----------------------------------------------------------------- answering
-    def _compose(self, rid: str, message: str, results: list[ToolResult], llm_text: Optional[str]) -> ChatResponse:
+    def _compose(self, rid: str, message: str, results: list[ToolResult], llm_text: Optional[str], llm_note: Optional[str] = None) -> ChatResponse:
         facts, unknown, actions = analyse(results, self.settings)
+        if llm_note:
+            unknown.insert(0, llm_note)
         if not results:
             unknown.append("No tool matched this request, so no operational facts were collected.")
         answer = llm_text or render_answer(facts, unknown, actions)
         return ChatResponse(
             request_id=rid,
             answer=answer,
+            planner="gemini" if llm_text else "rules",
             tools_called=[r.tool for r in results],
             evidence=[Evidence(tool=r.tool, status=r.status, summary=r.data if r.ok else r.error) for r in results],
             known_facts=facts,
@@ -257,6 +259,28 @@ def analyse(results: list[ToolResult], settings: Settings) -> tuple[list[str], l
     if lst is not None:
         for r in lst:
             facts.append(f"Run {r['run_id']} [{r['status']}] metrics={r['metrics']}")
+
+    dep_list = _first_ok(by_tool, "k8s_list_deployments")
+    if dep_list is not None:
+        for d in dep_list:
+            facts.append(f"Deployment {d['name']}: {d['ready']}/{d['desired']} ready, {d['available']} available, image {d['image']}.")
+    pod_list = _first_ok(by_tool, "k8s_list_pods")
+    if pod_list is not None and "k8s_unhealthy" not in by_tool:
+        facts.append(
+            "Pods: "
+            + "; ".join(f"{p['name']} ({p['phase']}, ready={p['ready']}, restarts={p['restarts']}"
+                        + (f", {p['waiting_reason']}" if p.get("waiting_reason") else "") + ")" for p in pod_list)
+            + "."
+        )
+    _covered = {
+        "mlflow_best_run", "mlflow_list_runs", "dvc_dataset_for_run", "dvc_list_datasets", "dvc_current_version",
+        "dvc_detect_changes", "dvc_explain_reproduce", "k8s_app_version", "k8s_unhealthy", "k8s_pod_logs",
+        "k8s_list_services", "k8s_list_deployments", "k8s_list_pods", "airflow_dag_runs", "airflow_failed_tasks",
+        "airflow_trigger_dag",
+    }
+    for r in results:  # never silently drop evidence from a tool that succeeded
+        if r.ok and r.tool not in _covered:
+            facts.append(f"{r.tool}: {_short(r.data, 400)}")
 
     # retraining policy (evidence-gated)
     wants_retrain = any(r.tool.startswith("airflow_") or r.tool == "mlflow_best_run" for r in results) and best_data is not None
