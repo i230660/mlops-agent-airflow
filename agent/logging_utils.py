@@ -1,4 +1,3 @@
-"""Structured JSON logging that never leaks secrets."""
 from __future__ import annotations
 
 import json
